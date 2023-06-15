@@ -1,0 +1,64 @@
+version: "3.9"
+services:
+  app:
+    build: .
+    ports:
+      - "3001:80"
+  grafana:
+    image: grafana/grafana:9.2.3
+    entrypoint:
+      - /usr/share/grafana/bin/grafana-server
+      - --homepath=/usr/share/grafana
+      - --config=/etc/grafana-config/grafana.ini
+    volumes:
+      - ./grafana/config:/etc/grafana-config
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources
+      # - ./grafana/dashboards-provisioning:/etc/grafana/provisioning/dashboards
+      # - ./grafana/dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "3000:3000"
+  mimir:
+    image: grafana/mimir:latest
+    volumes:
+    - ./mimir/config.yaml:/etc/mimir/demo.yaml
+  loki:
+    image: grafana/loki:2.6.1
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+  tempo:
+    image: grafana/tempo:1.5.0
+    command:
+      - "-search.enabled=true"
+      - "-storage.trace.backend=local"                  # tell tempo where to permanently put traces
+      - "-storage.trace.local.path=/tmp/tempo/traces"
+      - "-storage.trace.wal.path=/tmp/tempo/wal"        # tell tempo where to store the wal
+      - "-auth.enabled=false"                           # disables the requirement for the X-Scope-OrgID header
+      - "-server.http-listen-port=3200"
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+  agent:
+    image: grafana/agent:latest
+    volumes:
+      - ./agent/config.yaml:/etc/agent-config/agent.yaml
+    entrypoint:
+      - /bin/grafana-agent
+      - -server.http.address=0.0.0.0:12345
+      - -config.file=/etc/agent-config/agent.yaml
+      - -metrics.wal-directory=/tmp/agent/wal
+      - -enable-features=integrations-next
+      - -config.expand-env
+      - -config.enable-read-api
+    environment:
+      HOSTNAME: agent
+      LOKI_HOST: loki:3100
+      TEMPO_HOST: tempo:4317
+    ports:
+      - "12345:12345"
+    depends_on:
+      - loki
+      - tempo
+
+volumes:
+  applogs:
